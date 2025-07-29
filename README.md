@@ -541,3 +541,309 @@ kubectl logs -n calico-policy-ns <pod-name>
 
 ---
 **Note**: This setup demonstrates basic Calico network policy functionality. For production environments, consider implementing more comprehensive security policies and monitoring solutions.
+
+# Task 04 - Monitoring & Observability
+
+## Overview
+This section demonstrates the implementation of a comprehensive monitoring and observability solution using Prometheus and Grafana on Kubernetes. The setup includes deploying NGINX with custom metrics exposure, configuring Prometheus to scrape application metrics, and visualizing the data through Grafana dashboards.
+
+The monitoring environment was set up following the guide: [A Hands-on Guide to Kubernetes Monitoring using Prometheus & Grafana](https://medium.com/@muppedaanvesh/a-hands-on-guide-to-kubernetes-monitoring-using-prometheus-grafana-%EF%B8%8F-b0e00b1ae039)
+
+## Prerequisites
+- Kubernetes cluster running and accessible via kubectl
+- Helm 3.x installed
+- Administrative access to the cluster
+- Prometheus and Grafana stack deployed following [this comprehensive guide](https://medium.com/@muppedaanvesh/a-hands-on-guide-to-kubernetes-monitoring-using-prometheus-grafana-%EF%B8%8F-b0e00b1ae039)
+
+## Environment Setup
+The Prometheus and Grafana monitoring stack was installed using the kube-prometheus-stack Helm chart as detailed in the referenced Medium article. This provides:
+- Prometheus Operator for managing Prometheus instances
+- Grafana with pre-configured dashboards
+- AlertManager for handling alerts
+- Node Exporter for system metrics
+- ServiceMonitor CRDs for service discovery
+
+## Architecture Components
+- **Prometheus**: Metrics collection and storage (deployed via kube-prometheus-stack)
+- **Grafana**: Data visualization and dashboarding (deployed via kube-prometheus-stack)
+- **NGINX**: Sample application with metrics exposure
+- **NGINX Prometheus Exporter**: Sidecar container for metrics conversion
+- **ServiceMonitor**: Prometheus service discovery configuration
+- **Prometheus Operator**: Manages Prometheus instances and configurations
+## Files Structure
+```
+https://github.com/Dilshan-Somaweera/Devops_Practical_02/tree/main/monitoring/
+```
+
+### Configuration Files
+- `custom-values.yaml` - Helm values for Prometheus/Grafana stack
+- `nginx-config.yaml` - NGINX configuration with metrics endpoint
+- `nginx-exporter-deployment.yaml` - NGINX + Exporter deployment
+- `nginx-exporter-service.yaml` - Service to expose NGINX and metrics
+- `nginx-servicemonitor.yaml` - Prometheus scraping configuration
+
+## Implementation Steps
+
+### 1. Deploy NGINX Configuration
+Apply the NGINX configuration that exposes the `/stub_status` endpoint for metrics scraping:
+
+```bash
+kubectl apply -f nginx-config.yaml
+```
+
+**What this does:**
+- Creates a ConfigMap with custom NGINX configuration
+- Enables the `/stub_status` endpoint for internal metrics
+- Mounts the configuration into the NGINX container
+
+### 2. Deploy NGINX with Prometheus Exporter
+Deploy the main application with the metrics exporter as a sidecar:
+
+```bash
+kubectl apply -f nginx-exporter-deployment.yaml
+```
+
+**Architecture:**
+- **NGINX Container**: Serves web traffic and exposes `/stub_status`
+- **NGINX Prometheus Exporter**: Sidecar container that:
+  - Fetches metrics from `http://localhost/stub_status`
+  - Converts them to Prometheus format
+  - Exposes metrics on port `9113`
+
+### 3. Create Service for Metrics Exposure
+Expose the deployment via a ClusterIP service:
+
+```bash
+kubectl apply -f nginx-exporter-service.yaml
+```
+
+**Service Configuration:**
+- Port `80`: NGINX web traffic
+- Port `9113`: Prometheus metrics endpoint
+
+**Verification:**
+```bash
+kubectl get endpoints nginx-exporter-service -n default
+```
+You should see both ports (`80`, `9113`) mapped to the pod.
+
+### 4. Configure Prometheus Service Discovery
+Apply the ServiceMonitor to enable automatic metrics scraping:
+
+```bash
+kubectl apply -f nginx-servicemonitor.yaml
+```
+
+**Key Configuration:**
+- `release: kube-prometheus-stack` matches Prometheus deployment labels
+- Scrape interval: 15 seconds
+- Target port: `9113` (metrics endpoint)
+
+### 5. Verify Prometheus Target Discovery
+Access Prometheus UI and verify the target:
+
+1. Open Prometheus: `http://<external-ip>:30090`
+2. Navigate to **Status > Targets**
+3. Confirm `nginx-exporter` appears as **UP** target
+
+### 6. Configure Grafana Dashboard
+Set up visualization in Grafana:
+
+1. Open Grafana: `http://<external-ip>:31959`
+2. Go to **Dashboards > Import**
+3. Use dashboard ID: `12708` (NGINX Exporter dashboard)
+4. Select `Prometheus` as datasource
+5. Click **Import**
+
+## Technical Flow Explanation
+
+### 🔧 How NGINX Monitoring Works
+
+#### 1. Metrics Exposure (`nginx-config.yaml`)
+- Custom NGINX configuration enables `/stub_status` endpoint
+- Exposes internal metrics:
+  - Active connections
+  - Requests per second
+  - Reading/writing/waiting connections
+- Configuration packaged as ConfigMap and mounted to container
+
+#### 2. Sidecar Pattern (`nginx-exporter-deployment.yaml`)
+- **Two containers in one pod:**
+  - `nginx`: Web server with metrics endpoint
+  - `nginx-prometheus-exporter`: Metrics conversion service
+- Shared network namespace allows exporter to access NGINX via `localhost`
+- Exporter converts `/stub_status` to Prometheus format
+
+#### 3. Service Discovery (`nginx-exporter-service.yaml`)
+- ClusterIP service provides stable endpoint
+- Exposes both application (80) and metrics (9113) ports
+- Enables Prometheus to discover and scrape metrics
+
+#### 4. Automatic Scraping (`nginx-servicemonitor.yaml`)
+- ServiceMonitor configures Prometheus scraping behavior
+- Selector matches service labels for automatic discovery
+- Defines scrape interval and target port
+
+#### 5. Data Flow Summary
+```
+[nginx-config.yaml] ➝ [nginx container] exposes /stub_status
+                    ➝ [nginx-prometheus-exporter] reads stub_status
+                    ➝ [nginx-exporter-service.yaml] exposes port 9113
+                    ➝ [nginx-servicemonitor.yaml] tells Prometheus to scrape 9113
+                    ➝ [Prometheus] stores metrics
+                    ➝ [Grafana] visualizes via dashboards
+```
+
+## Verification Commands
+
+### Check Deployment Status
+```bash
+# Verify pods are running
+kubectl get pods -l app=nginx-exporter
+
+# Check service configuration
+kubectl get svc nginx-exporter-service
+
+# Verify service endpoints
+kubectl get endpoints nginx-exporter-service
+
+# Check ServiceMonitor
+kubectl get servicemonitor nginx-exporter-monitor
+```
+
+### Debug and Testing
+```bash
+# Check exporter logs
+kubectl logs <nginx-exporter-pod-name> -c exporter
+
+# Port forward to test metrics endpoint
+kubectl port-forward svc/nginx-exporter-service 9113:9113
+
+# Test metrics endpoint directly
+curl http://localhost:9113/metrics
+
+# Check NGINX logs
+kubectl logs <nginx-exporter-pod-name> -c nginx
+```
+
+## Metrics Available
+
+### NGINX Stub Status Metrics
+- `nginx_connections_active`: Active client connections
+- `nginx_connections_accepted_total`: Total accepted connections
+- `nginx_connections_handled_total`: Total handled connections
+- `nginx_http_requests_total`: Total HTTP requests
+- `nginx_connections_reading`: Connections reading request headers
+- `nginx_connections_writing`: Connections writing responses
+- `nginx_connections_waiting`: Idle connections waiting for requests
+
+### System Metrics (via Node Exporter)
+- CPU usage per node
+- Memory utilization
+- Disk I/O statistics
+- Network traffic
+- Pod resource consumption
+
+## Grafana Dashboard Features
+
+### NGINX Exporter Dashboard (ID: 12708)
+- **Request Rate**: HTTP requests per second
+- **Connection States**: Active, reading, writing, waiting
+- **Traffic Throughput**: Bytes sent/received
+- **Response Codes**: HTTP status code distribution
+- **Uptime Monitoring**: Service availability
+
+### Custom Panels Available
+- Real-time connection monitoring
+- Request rate trends
+- Error rate tracking
+- Performance metrics visualization
+
+## Troubleshooting
+
+### Common Issues
+
+#### 1. ServiceMonitor Not Discovered
+- Verify label selector matches service labels
+- Check namespace configuration
+- Ensure Prometheus has proper RBAC permissions
+
+#### 2. Metrics Not Appearing
+- Confirm `/stub_status` endpoint is accessible
+- Check exporter container logs
+- Verify port forwarding and curl tests
+
+#### 3. Grafana Dashboard Empty
+- Ensure Prometheus is scraping targets successfully
+- Verify datasource configuration
+- Check metric names in queries
+
+### Debug Steps
+```bash
+# Check Prometheus configuration
+kubectl get prometheus -o yaml
+
+# Verify ServiceMonitor labels
+kubectl describe servicemonitor nginx-exporter-monitor
+
+# Test connectivity to metrics endpoint
+kubectl exec -it <nginx-pod> -c exporter -- wget -O- localhost:9113/metrics
+
+# Check Prometheus targets API
+curl http://<prometheus-url>/api/v1/targets
+```
+
+## Best Practices Implemented
+
+1. **Sidecar Pattern**: Efficient metrics collection without modifying main application
+2. **Service Discovery**: Automatic target discovery using ServiceMonitor
+3. **Configuration Management**: Using ConfigMaps for application configuration
+4. **Resource Labeling**: Proper labeling for service discovery and organization
+5. **Separation of Concerns**: Distinct files for different components
+
+## Performance Considerations
+
+- **Scrape Interval**: Balanced at 15 seconds for real-time monitoring
+- **Resource Limits**: Appropriate CPU/memory limits for exporter sidecar
+- **Metric Retention**: Configured retention period in Prometheus
+- **Dashboard Efficiency**: Optimized queries to prevent Grafana overload
+
+## Security Considerations
+
+- **Internal Networking**: Metrics endpoints only accessible within cluster
+- **RBAC**: Proper permissions for ServiceMonitor discovery
+- **Network Policies**: Restricted access to metrics endpoints
+- **Authentication**: Grafana secured with proper authentication
+
+## Monitoring Scope
+
+### Application Level
+- NGINX performance metrics
+- Request/response patterns
+- Error rates and status codes
+- Connection handling efficiency
+
+### Infrastructure Level
+- Node resource utilization
+- Pod performance metrics
+- Network traffic patterns
+- Storage usage statistics
+
+## Next Steps
+
+1. **Alerting**: Implement Prometheus AlertManager for proactive monitoring
+2. **Custom Metrics**: Add application-specific business metrics
+3. **Log Aggregation**: Integrate with ELK stack for comprehensive observability
+4. **Distributed Tracing**: Add Jaeger for request tracing
+5. **SLA Monitoring**: Configure SLI/SLO dashboards
+
+## References
+
+- [A Hands-on Guide to Kubernetes Monitoring using Prometheus & Grafana](https://medium.com/@muppedaanvesh/a-hands-on-guide-to-kubernetes-monitoring-using-prometheus-grafana-%EF%B8%8F-b0e00b1ae039) - Primary setup guide followed
+- [Prometheus Documentation](https://prometheus.io/docs/)
+- [Grafana Documentation](https://grafana.com/docs/)
+- [NGINX Prometheus Exporter](https://github.com/nginxinc/nginx-prometheus-exporter)
+- [Kubernetes ServiceMonitor](https://prometheus-operator.dev/docs/operator/design/#servicemonitor)
+
+---
+**Note**: This monitoring setup provides a foundation for production-grade observability. Consider scaling and security requirements for production deployments.
