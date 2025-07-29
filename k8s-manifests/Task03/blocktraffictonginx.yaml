@@ -1,0 +1,25 @@
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: block-nginx-by-selector
+  namespace: calico-policy-ns
+spec:
+  selector: app == "access"
+  types:
+  - Egress
+  egress:
+  # Block access to pods with label app=ngix 
+  - action: Deny
+    destination:
+      selector: app == "ngix"
+  # Allow DNS resolution
+  - action: Allow
+    protocol: UDP
+    destination:
+      ports: [53]
+  - action: Allow
+    protocol: TCP
+    destination:
+      ports: [53]
+  # Allow everything else
+  - action: Allow

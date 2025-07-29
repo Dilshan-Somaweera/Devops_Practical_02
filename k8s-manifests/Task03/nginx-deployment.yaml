@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ngix
+  namespace: calico-policy-ns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ngix
+  template:
+    metadata:
+      labels:
+        app: ngix
+    spec:
+      containers:
+      - name: ngix
+        image: nginx
+        ports:
+        - containerPort: 80
