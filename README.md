@@ -344,3 +344,200 @@ kubectl autoscale deployment <deployment-name> --cpu-percent=70 --min=2 --max=10
 ```
 
 This completes Task02 - containerized application deployment with proper scaling and service exposure on Kubernetes.
+
+# Task 03 - Calico Setup
+
+## Overview
+This section demonstrates the implementation of Calico CNI (Container Network Interface) on a Kubernetes cluster deployed on Google Cloud Platform. The setup includes installing Calico, configuring network policies, and testing traffic isolation between pods.
+
+## Infrastructure Details
+- **Platform**: Google Cloud Platform (GCP)
+- **VM Instance Type**: e2-standard-2 (2 vCPU, 8GB RAM per instance)
+- **Kubernetes Cluster**: Self-managed cluster following manual setup
+- **CNI Plugin**: Calico v3.26.1
+
+## Prerequisites
+- Kubernetes cluster running on GCP
+- kubectl configured and connected to the cluster
+- Administrative access to the cluster nodes
+
+## Installation Steps
+
+### 1. Cluster Setup
+The Kubernetes cluster was created following the guide from [Creating a Kubernetes cluster step by step](https://medium.com/@brunosquassoni/creating-a-kubernetes-cluster-step-by-step-bd9ae3c85275).
+
+### 2. Calico Installation
+Calico was installed using the official Tigera documentation from [Calico Kubernetes Quickstart](https://docs.tigera.io/calico/latest/getting-started/kubernetes/quickstart).
+
+#### Install Calico CRDs and Components
+```bash
+# Apply Calico Custom Resource Definitions
+kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/crds.yaml
+
+# Install calicoctl CLI tool
+sudo curl -L https://github.com/projectcalico/calico/releases/download/v3.26.1/calicoctl -o calicoctl
+sudo chmod +x calicoctl
+sudo mv calicoctl /usr/local/bin/
+
+# Verify installation
+calicoctl version
+
+# Configure kubeconfig for calicoctl
+export KUBECONFIG=/home/sft2022viduaka/.kube/config
+```
+
+### 3. Network Policy Testing Setup
+
+#### Create Test Namespace
+```bash
+kubectl create namespace calico-policy-ns
+```
+
+#### Deploy Test Applications
+The following manifests are deployed to test network policies:
+
+1. **nginx-deployment.yaml** - Nginx web server deployment
+2. **nginx-service.yaml** - Service to expose Nginx
+3. **busybox-pod.yaml** - BusyBox pod for testing connectivity
+
+```bash
+# Deploy Nginx application
+kubectl apply -f nginx-deployment.yaml
+kubectl get deployment -n calico-policy-ns
+
+# Deploy Nginx service
+kubectl apply -f nginx-service.yaml
+kubectl get services -n calico-policy-ns
+
+# Deploy BusyBox test pod
+kubectl apply -f busybox-pod.yaml
+kubectl get pods -n calico-policy-ns
+```
+
+#### Verify Initial Connectivity
+```bash
+# Get pod details including IP addresses
+kubectl get pods -n calico-policy-ns nginx-7698bdd78b-f25kg -o wide
+
+# Test connectivity from BusyBox to Nginx (should work initially)
+kubectl -n calico-policy-ns exec -it access -- wget -O - 10.60.1.10
+```
+
+### 4. Network Policy Implementation
+
+#### Apply Traffic Blocking Policy
+```bash
+# Apply network policy to block traffic to Nginx
+calicoctl apply -f blocktraffictonginx.yaml
+
+# Verify policy is applied
+calicoctl get networkpolicy -n calico-policy-ns
+```
+
+#### Test Policy Enforcement
+```bash
+# Test connectivity after policy application (should fail/timeout)
+kubectl -n calico-policy-ns exec -it access -- wget -O - 10.60.1.10
+```
+
+## Network Policy Configuration
+
+The network policies demonstrate:
+
+1. **Traffic Isolation**: Blocking unauthorized access to specific pods
+2. **Namespace-level Security**: Controlling traffic flow within namespaces
+3. **Label-based Selection**: Using Kubernetes labels for policy targeting
+
+### Policy Files Location
+All network policy YAML files are available in the repository at:
+```
+https://github.com/Dilshan-Somaweera/Devops_Practical_02/tree/main/k8s-manifests/Task03
+```
+
+## Testing Results
+
+### Before Network Policy
+- BusyBox pod can successfully access Nginx service
+- Network connectivity works as expected
+- wget command returns Nginx default page
+
+### After Network Policy
+- Traffic to Nginx is blocked as per policy rules
+- wget command fails or times out
+- Network isolation is successfully enforced
+
+## Key Components
+
+### Deployed Resources
+- **Namespace**: `calico-policy-ns`
+- **Deployment**: Nginx web server with 2 replicas
+- **Service**: NodePort/ClusterIP service for Nginx
+- **Pod**: BusyBox pod for connectivity testing
+- **NetworkPolicy**: Calico network policy for traffic control
+
+### Network Policy Features Demonstrated
+1. **Ingress Rules**: Controlling incoming traffic to pods
+2. **Pod Selection**: Using labels to target specific pods
+3. **Traffic Blocking**: Denying access from unauthorized sources
+4. **Policy Enforcement**: Real-time traffic filtering
+
+## Verification Commands
+
+```bash
+# Check Calico installation status
+kubectl get pods -n kube-system | grep calico
+
+# View network policies
+calicoctl get networkpolicy --all-namespaces
+
+# Check pod connectivity
+kubectl get pods -n calico-policy-ns -o wide
+
+# Test network connectivity
+kubectl -n calico-policy-ns exec -it <busybox-pod> -- wget -O - <nginx-service-ip>
+
+# View Calico node status
+calicoctl node status
+```
+
+## Troubleshooting
+
+### Common Issues
+1. **Policy Not Applied**: Ensure calicoctl is properly configured with kubeconfig
+2. **Connectivity Issues**: Verify pod IPs and service endpoints
+3. **DNS Resolution**: Check if service discovery is working properly
+
+### Debug Commands
+```bash
+# Check Calico system pods
+kubectl get pods -n kube-system -l k8s-app=calico-node
+
+# View detailed network policy
+calicoctl get networkpolicy <policy-name> -o yaml
+
+# Check pod logs
+kubectl logs -n calico-policy-ns <pod-name>
+```
+
+## Best Practices Implemented
+
+1. **Namespace Isolation**: Using dedicated namespace for testing
+2. **Label-based Policies**: Implementing policies based on Kubernetes labels
+3. **Gradual Testing**: Testing connectivity before and after policy application
+4. **Policy Validation**: Verifying policy enforcement through practical tests
+
+## Next Steps
+
+1. Implement more granular network policies
+2. Add ingress controller integration
+3. Set up monitoring for network policy violations
+4. Implement network policy automation using GitOps
+
+## References
+
+- [Calico Documentation](https://docs.tigera.io/calico/latest/)
+- [Kubernetes Network Policies](https://kubernetes.io/docs/concepts/services-networking/network-policies/)
+- [Calico Network Policy](https://docs.tigera.io/calico/latest/network-policy/)
+
+---
+**Note**: This setup demonstrates basic Calico network policy functionality. For production environments, consider implementing more comprehensive security policies and monitoring solutions.
