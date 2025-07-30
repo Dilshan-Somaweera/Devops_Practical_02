@@ -67,10 +67,10 @@ resource "google_compute_firewall" "nodeport_access" {
   
   allow {
     protocol = "tcp"
-    ports    = ["30000-32767"]  # Standard NodePort range
+    ports    = ["30000-32767"]  
   }
   
-  source_ranges = ["0.0.0.0/0"]  # Restrict this for better security
+  source_ranges = ["0.0.0.0/0"]  
   description   = "Allow NodePort access to ${var.cluster_name}"
   
   target_tags = var.node_tags
